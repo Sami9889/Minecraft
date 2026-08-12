@@ -1,0 +1,63 @@
+name: Minecraft Server - GitHub Hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - update
+          - restart
+  schedule:
+    - cron: '0 4 * * *'
+
+jobs:
+  minecraft-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Download server files
+        run: |
+          mkdir -p server plugins configs world logs
+          curl -L -o server/paper.jar "https://fill-data.papermc.io/v1/objects/bd3a58cf96874e5ea6643f5f6fe9b4f5bf9e34b795fa078c2f0ee8b98b2f907e/paper-26.2-112.jar"
+          curl -L -o server/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/2.11.1/builds/1217/downloads/spigot"
+          curl -L -o server/plugins/ViaVersion.jar "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.11.0/PAPER/ViaVersion-5.11.0.jar"
+      - name: Configure server
+        run: |
+          echo "eula=true" > server/eula.txt
+          echo "server-port=25565" > server/server.properties
+          echo "enable-rcon=false" >> server/server.properties
+          echo "rcon.password=" >> server/server.properties
+          echo "max-players=20" >> server/server.properties
+          echo "online-mode=true" >> server/server.properties
+          echo "enable-status=true" >> server/server.properties
+          echo "motd=Paper Server - GitHub Actions" >> server/server.properties
+          echo "difficulty=normal" >> server/server.properties
+          echo "gamemode=survival" >> server/server.properties
+          echo "spawn-protection=16" >> server/server.properties
+          echo "view-distance=10" >> server/server.properties
+          echo "simulation-distance=8" >> server/server.properties
+          echo "white-list=false" >> server/server.properties
+          echo "enforce-secure-profile=true" >> server/server.properties
+          mkdir -p server/plugins/Geyser-Spigot
+          echo "bedrock:" > server/plugins/Geyser-Spigot/config.yml
+          echo "  address: 0.0.0.0" >> server/plugins/Geyser-Spigot/config.yml
+          echo "  port: 19132" >> server/plugins/Geyser-Spigot/config.yml
+          echo "  clone-remote-port: false" >> server/plugins/Geyser-Spigot/config.yml
+          echo "remote:" >> server/plugins/Geyser-Spigot/config.yml
+          echo "  address: 127.0.0.1" >> server/plugins/Geyser-Spigot/config.yml
+          echo "  port: 25565" >> server/plugins/Geyser-Spigot/config.yml
+          echo "  auth-type: online" >> server/plugins/Geyser-Spigot/config.yml
+      - name: Start Minecraft Server
+        run: |
+          timeout --preserve-status 350m java -Xmx3G -Xms1G -jar server/paper.jar nogui || true

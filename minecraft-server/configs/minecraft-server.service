@@ -1,0 +1,17 @@
+[Unit]
+Description=Minecraft Server (Paper + GeyserMC)
+After=network.target
+
+[Service]
+Type=simple
+User=minecraft
+WorkingDirectory=/opt/minecraft-server
+ExecStart=/opt/minecraft-server/scripts/start.sh
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
