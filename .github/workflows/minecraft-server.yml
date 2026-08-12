@@ -92,6 +92,17 @@ jobs:
       - name: Fix permissions
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo chown -R minecraft:minecraft /opt/minecraft"
+      - name: Create cloudflared config and credentials
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo mkdir -p /etc/cloudflared"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/cloudflared/config.yml > /dev/null" << 'EOF'
+          tunnel: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
+          credentials-file: /etc/cloudflared/credentials.json
+          EOF
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/cloudflared/credentials.json > /dev/null" << 'EOF'
+          ${{ secrets.CLOUDFLARE_TUNNEL_CREDENTIALS }}
+          EOF
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo chmod 600 /etc/cloudflared/credentials.json"
       - name: Create systemd services
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/systemd/system/minecraft-server.service > /dev/null" << 'EOF'
@@ -123,7 +134,7 @@ jobs:
           [Service]
           Type=simple
           User=root
-          ExecStart=/usr/local/bin/cloudflared tunnel run ${{ secrets.CLOUDFLARE_TUNNEL_NAME }}
+          ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run
           Restart=always
           RestartSec=5
           StandardOutput=journal
