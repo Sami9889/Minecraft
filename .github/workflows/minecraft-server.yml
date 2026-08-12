@@ -28,9 +28,9 @@ jobs:
           java-version: '21'
       - name: Download server files
         run: |
-          mkdir -p server plugins configs world logs
+          mkdir -p server plugins configs world logs server/plugins
           curl -L -o server/paper.jar "https://fill-data.papermc.io/v1/objects/bd3a58cf96874e5ea6643f5f6fe9b4f5bf9e34b795fa078c2f0ee8b98b2f907e/paper-26.2-112.jar"
-          curl -L -o server/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/2.11.1/builds/1217/downloads/spigot"
+          curl -L -o server/plugins/Geyser-Spigot.jar "https://github.com/GeyserMC/Geyser/releases/download/2.11.1/Geyser-Spigot.jar"
           curl -L -o server/plugins/ViaVersion.jar "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.11.0/PAPER/ViaVersion-5.11.0.jar"
       - name: Configure server
         run: |
