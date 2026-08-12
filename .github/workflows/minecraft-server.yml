@@ -1,4 +1,4 @@
-name: Minecraft Server - GitHub Hosted
+name: Minecraft Server - VPS + Cloudflare Tunnel
 
 on:
   workflow_dispatch:
@@ -28,9 +28,9 @@ jobs:
           java-version: '21'
       - name: Download server files
         run: |
-          mkdir -p server plugins configs world logs
+          mkdir -p server plugins configs world logs server/plugins
           curl -L -o server/paper.jar "https://fill-data.papermc.io/v1/objects/bd3a58cf96874e5ea6643f5f6fe9b4f5bf9e34b795fa078c2f0ee8b98b2f907e/paper-26.2-112.jar"
-          curl -L -o server/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/2.11.1/builds/1217/downloads/spigot"
+          curl -L -o server/plugins/Geyser-Spigot.jar "https://github.com/GeyserMC/Geyser/releases/download/2.11.1/Geyser-Spigot.jar"
           curl -L -o server/plugins/ViaVersion.jar "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.11.0/PAPER/ViaVersion-5.11.0.jar"
       - name: Configure server
         run: |
@@ -41,7 +41,7 @@ jobs:
           echo "max-players=20" >> server/server.properties
           echo "online-mode=true" >> server/server.properties
           echo "enable-status=true" >> server/server.properties
-          echo "motd=Paper Server - GitHub Actions" >> server/server.properties
+          echo "motd=Paper Server - Cloudflare Tunnel" >> server/server.properties
           echo "difficulty=normal" >> server/server.properties
           echo "gamemode=survival" >> server/server.properties
           echo "spawn-protection=16" >> server/server.properties
@@ -55,9 +55,97 @@ jobs:
           echo "  port: 19132" >> server/plugins/Geyser-Spigot/config.yml
           echo "  clone-remote-port: false" >> server/plugins/Geyser-Spigot/config.yml
           echo "remote:" >> server/plugins/Geyser-Spigot/config.yml
-          echo "  address: ${{ secrets.IP }}" >> server/plugins/Geyser-Spigot/config.yml
+          echo "  address: 127.0.0.1" >> server/plugins/Geyser-Spigot/config.yml
           echo "  port: 25565" >> server/plugins/Geyser-Spigot/config.yml
           echo "  auth-type: online" >> server/plugins/Geyser-Spigot/config.yml
-      - name: Start Minecraft Server
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Test SSH connection
         run: |
-          timeout --preserve-status 350m java -Xmx3G -Xms1G -jar server/paper.jar nogui || true
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "echo Connected to VPS"
+      - name: Install cloudflared and Java on VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} " \
+            sudo apt-get update && \
+            sudo apt-get install -y curl java-21-jdk openjdk-21-jdk && \
+            curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared && \
+            sudo mv /tmp/cloudflared /usr/local/bin/cloudflared && \
+            sudo chmod +x /usr/local/bin/cloudflared && \
+            cloudflared --version \
+          "
+      - name: Create minecraft user
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} " \
+            sudo useradd -r -m -d /opt/minecraft -s /bin/bash minecraft || true \
+          "
+      - name: Upload server files
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo mkdir -p /opt/minecraft/server /opt/minecraft/plugins /opt/minecraft/logs /opt/minecraft/backups"
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" \
+            server/ ${{ secrets.SSH_USER }}@${{ secrets.IP }}:/opt/minecraft/server/
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" \
+            minecraft-server/scripts/ ${{ secrets.SSH_USER }}@${{ secrets.IP }}:/opt/minecraft/scripts/
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" \
+            minecraft-server/configs/ ${{ secrets.SSH_USER }}@${{ secrets.IP }}:/opt/minecraft/configs/
+      - name: Fix permissions
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo chown -R minecraft:minecraft /opt/minecraft"
+      - name: Create systemd services
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/systemd/system/minecraft-server.service > /dev/null" << 'EOF'
+          [Unit]
+          Description=Minecraft Server (Paper + GeyserMC)
+          After=network.target cloudflared.service
+          Wants=cloudflared.service
+
+          [Service]
+          Type=simple
+          User=minecraft
+          WorkingDirectory=/opt/minecraft
+          ExecStart=/usr/bin/java -Xmx2G -Xms1G -jar /opt/minecraft/server/paper.jar nogui
+          ExecStop=/bin/kill -TERM $MAINPID
+          Restart=always
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          Environment=MOTD=Paper Server - Cloudflare Tunnel
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/systemd/system/cloudflared.service > /dev/null" << 'EOF'
+          [Unit]
+          Description=Cloudflare Tunnel
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=root
+          ExecStart=/usr/local/bin/cloudflared tunnel run ${{ secrets.CLOUDFLARE_TUNNEL_NAME }}
+          Restart=always
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+      - name: Reload systemd and start services
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} " \
+            sudo systemctl daemon-reload && \
+            sudo systemctl enable --now cloudflared && \
+            sudo systemctl enable --now minecraft-server && \
+            sudo systemctl status cloudflared --no-pager && \
+            sudo systemctl status minecraft-server --no-pager \
+          "
+      - name: Verify tunnel status
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} " \
+            echo '=== Cloudflared logs ===' && \
+            sudo journalctl -u cloudflared -n 20 --no-pager || true && \
+            echo '=== Minecraft logs ===' && \
+            sudo journalctl -u minecraft-server -n 20 --no-pager || true \
+          "
