@@ -55,7 +55,7 @@ jobs:
           echo "  port: 19132" >> server/plugins/Geyser-Spigot/config.yml
           echo "  clone-remote-port: false" >> server/plugins/Geyser-Spigot/config.yml
           echo "remote:" >> server/plugins/Geyser-Spigot/config.yml
-          echo "  address: 127.0.0.1" >> server/plugins/Geyser-Spigot/config.yml
+          echo "  address: ${{ secrets.IP }}" >> server/plugins/Geyser-Spigot/config.yml
           echo "  port: 25565" >> server/plugins/Geyser-Spigot/config.yml
           echo "  auth-type: online" >> server/plugins/Geyser-Spigot/config.yml
       - name: Start Minecraft Server
