@@ -1,4 +1,4 @@
-name: Minecraft Server - GitHub Hosted
+name: Minecraft Server - Remote Deploy
 
 on:
   workflow_dispatch:
@@ -58,6 +58,37 @@ jobs:
           echo "  address: ${{ secrets.IP }}" >> server/plugins/Geyser-Spigot/config.yml
           echo "  port: 25565" >> server/plugins/Geyser-Spigot/config.yml
           echo "  auth-type: online" >> server/plugins/Geyser-Spigot/config.yml
-      - name: Start Minecraft Server
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Test SSH connection
         run: |
-          timeout --preserve-status 350m java -Xmx3G -Xms1G -jar server/paper.jar nogui || true
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "echo Connected to VPS"
+      - name: Upload server files
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo mkdir -p /opt/minecraft-server"
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" \
+            server/ ${{ secrets.SSH_USER }}@${{ secrets.IP }}:/opt/minecraft-server/server/
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" \
+            minecraft-server/scripts/ ${{ secrets.SSH_USER }}@${{ secrets.IP }}:/opt/minecraft-server/scripts/
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" \
+            minecraft-server/configs/ ${{ secrets.SSH_USER }}@${{ secrets.IP }}:/opt/minecraft-server/configs/
+      - name: Setup VPS dependencies
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo bash /opt/minecraft-server/scripts/setup-backend.sh"
+      - name: Fix permissions
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo chown -R minecraft:minecraft /opt/minecraft-server"
+      - name: Start server
+        if: github.event.inputs.action == 'deploy' || github.event_name == 'schedule'
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo systemctl daemon-reload && sudo systemctl enable --now minecraft-server"
+      - name: Restart server
+        if: github.event.inputs.action == 'restart'
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo systemctl restart minecraft-server"
+      - name: Update server
+        if: github.event.inputs.action == 'update'
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo systemctl restart minecraft-server"
