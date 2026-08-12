@@ -92,18 +92,26 @@ jobs:
       - name: Fix permissions
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo chown -R minecraft:minecraft /opt/minecraft"
-      - name: Create cloudflared config and credentials
+      - name: Create cloudflared systemd service
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo mkdir -p /etc/cloudflared"
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/cloudflared/config.yml > /dev/null" << 'EOF'
-          tunnel: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
-          credentials-file: /etc/cloudflared/credentials.json
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/systemd/system/cloudflared.service > /dev/null" << 'EOF'
+          [Unit]
+          Description=Cloudflare Tunnel
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=root
+          ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          Restart=always
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
           EOF
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/cloudflared/credentials.json > /dev/null" << 'EOF'
-          ${{ secrets.CLOUDFLARE_TUNNEL_CREDENTIALS }}
-          EOF
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo chmod 600 /etc/cloudflared/credentials.json"
-      - name: Create systemd services
+      - name: Create minecraft systemd service
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/systemd/system/minecraft-server.service > /dev/null" << 'EOF'
           [Unit]
@@ -122,23 +130,6 @@ jobs:
           StandardOutput=journal
           StandardError=journal
           Environment=MOTD=Paper Server - Cloudflare Tunnel
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.IP }} "sudo tee /etc/systemd/system/cloudflared.service > /dev/null" << 'EOF'
-          [Unit]
-          Description=Cloudflare Tunnel
-          After=network.target
-
-          [Service]
-          Type=simple
-          User=root
-          ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run
-          Restart=always
-          RestartSec=5
-          StandardOutput=journal
-          StandardError=journal
 
           [Install]
           WantedBy=multi-user.target
